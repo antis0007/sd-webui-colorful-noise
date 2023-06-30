@@ -11,32 +11,26 @@ import modules.shared as shared
 
 enabled = False
 normalize = False
-normalize_weight = 0.5
-normalize_after = False
+normalize_weights = [0,0]
 
 color = [0.0,0.0,0.0]
 strength = 1.0
+luminance = 0.0
 
-def normalize_noise(noise):
-        global normalize
-        global normalize_weight
+def normalize_noise(noise, weight):
         print("Normalize: " + str(normalize))
-        if normalize == True:
-                print("NORMALIZING NOISE test")
-                #per channel normalization
-                for ix, channel in enumerate(noise):
-                        #we noticed a big shift in the i2i dynamic range, so we are normalizing each channel separately to fix this
-                        #all channels should be normally distributed, so we can use the mean and std to normalize
-                        print("Channel: " + str(ix))
-                        print("Mean: " + str(torch.mean(channel)))
-                        print("Std: " + str(torch.std(channel)))
-                        channel_norm = (channel - torch.mean(channel)) / torch.std(channel)
-                        print("Final Mean: " + str(torch.mean(channel_norm)))
-                        print("Final Std: " + str(torch.std(channel_norm)))
-                        #mix in the normalized channel with the original channel
-                        #channel = (channel * 0.5) + (channel_norm * 0.5)
-                        channel = (channel * (1.0 - normalize_weight)) + (channel_norm * normalize_weight)
-                        noise[ix] = channel
+        #per channel normalization
+        for ix, channel in enumerate(noise):
+                #we noticed a big shift in the i2i dynamic range, so we are normalizing each channel separately to fix this
+                #all channels should be normally distributed, so we can use the mean and std to normalize
+                print("Channel: " + str(ix))
+                print("Mean: " + str(torch.mean(channel)))
+                print("Std: " + str(torch.std(channel)))
+                channel_norm = (channel - torch.mean(channel)) / torch.std(channel)
+                print("Final Mean: " + str(torch.mean(channel_norm)))
+                print("Final Std: " + str(torch.std(channel_norm)))
+                #mix in the normalized channel with the original channel
+                noise[ix] = (channel_norm * weight) + (channel * (1-weight))
         return noise
 
 def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, seed_resize_from_h=0, seed_resize_from_w=0, p=None):
@@ -68,15 +62,13 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
         noise = devices.randn(seed, noise_shape)
         global enabled
         global normalize
-        global normalize_weight
-        global normalize_after
+        global normalize_weights
         global color
+        global luminance
 
-        if normalize_after == False:
-                print("Normalizing Before")
-                noise = normalize_noise(noise)
-        
-
+        #Normalize before:
+        if normalize == True:
+                noise = normalize_noise(noise, normalize_weights[0])
         print("Enabled: " + str(enabled))
         if enabled == True:
                 #the 0.18215 is the hard-coded magic number scale factor.
@@ -129,12 +121,101 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 
                 #multiply rgb color by the coefficient matrix's columns, this gives us the offsets for each layer
                 #Multiply each column in coefs by each index in color
-                mult = 1.0
-                coefs[:,0] = coefs[:,0] * color[0] * mult * strength
-                coefs[:,1] = coefs[:,1] * color[1] * mult * strength
-                coefs[:,2] = coefs[:,2] * color[2] * mult * strength
+                #mult = 0.18215
+
+                #luminance hack:
+                coefs[0,:] = coefs[0,:] * luminance
+                coefs[1,:] = coefs[1,:] * luminance
+
+                coefs[:,0] = coefs[:,0] * color[0]
+                coefs[:,1] = coefs[:,1] * color[1]
+                coefs[:,2] = coefs[:,2] * color[2]
                 #sum the columns to get the offset for each layer
                 offsets = torch.sum(coefs, dim=1)
+                #multiply the offsets by the strength
+                offsets = offsets * strength
+
+                #Qualitative notes:
+                #======================================================
+                #red at -1.0 luminance is DARK MAGENTA
+                #red at -0.5 luminance is MAGENTA
+                #red at 0 luminance is MAGENTA
+                #red at 0.5 luminance is BRIGHT PINK
+                #red at 1.0 luminance is WHITE
+
+                #conclusion: red is too bright, needs less luminance
+                #conclusion: red is too blue, needs less blue
+                
+                #======================================================
+                #orange at -1.0 luminance is DARK BLUE
+                #orange at -0.5 luminance is PURPLE
+                #orange at 0 luminance is PINK
+                #orange at 0.5 luminance is WHITE
+                #orange at 1.0 luminance is BRIGHT WHITE
+
+                #conclusion: orange is too bright, needs less luminance
+                #conclusion: orange is too blue, needs less blue
+
+                #======================================================
+                #yellow at -1.0 luminance is DARK BLUE
+                #yellow at -0.5 luminance is BLUE
+                #yellow at 0 luminance is WHITE/PINK
+                #yellow at 0.5 luminance is WHITE
+                #yellow at 1.0 luminance is BRIGHT WHITE
+                
+                #conclusion: yellow is too bright, needs less luminance
+                #conclusion: yellow is too blue, needs less blue
+                
+                #======================================================
+                #green at -1.0 luminance is DARK BLUE
+                #green at -0.5 luminance is BLUE
+                #green at 0 luminance is CYAN
+                #green at 0.5 luminance is WHITE/BRIGHT BLUE
+                #green at 1.0 luminance is BRIGHT WHITE
+
+                #conclusion: green is too bright, needs less luminance
+                #conclusion: green is too blue, needs less blue
+
+                #======================================================
+                #blue at -1.0 luminance is LIGHT BLUE/CYAN
+                #blue at -0.5 luminance is CYAN
+                #blue at 0 luminance is LIGHT CYAN
+                #blue at 0.5 luminance is VERY LIGHT CYAN
+                #blue at 1.0 luminance is VERY LIGHT CYAN/WHITE
+
+                #conclusion: blue is too bright, needs much less luminance
+                #conclusion: blue is too green, needs less green
+
+                #======================================================
+                #indigo at -1.0 luminance is BLUE
+                #indigo at -0.5 luminance is LIGHT BLUE/PURPLE
+                #indigo at 0 luminance is WHITE
+                #indigo at 0.5 luminance is WHITE
+                #indigo at 1.0 luminance is WHITE
+
+                #conclusion: indigo is too bright, needs less luminance
+                #conclusion: indigo is too blue, needs less blue or more red
+
+                #======================================================
+                #violet at -1.0 luminance is BLUE/LIGHT BLUE
+                #violet at -0.5 luminance is LIGHT BLUE
+                #violet at 0 luminance is WHITE/BLUE
+                #violet at 0.5 luminance is WHITE
+                #violet at 1.0 luminance is WHITE
+
+                #conclusion: violet is too bright, needs less luminance
+                #conclusion: violet is too blue, needs less blue or more red
+
+                #======================================================
+
+
+
+
+
+
+
+
+
                 #apply the offsets to the noise tensor
                 offsets_tensor =torch.Tensor(offsets).reshape([4,1,1])
                 #move the offset tensor to the same device as the noise tensor
@@ -153,10 +234,10 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 #move the offset tensor to the same device as the noise tensor
                 #offsettensor = offsettensor.to(noise.device)
                 #noise = torch.add(noise, offsettensor)
-        
-        if normalize_after == True:
-                print("Normalizing After")
-                noise = normalize_noise(noise)
+
+        #Normalize after:
+        if normalize == True:
+                noise = normalize_noise(noise, normalize_weights[1])
 
         if subnoise is not None:
             noise = processing.slerp(subseed_strength, noise, subnoise)
@@ -203,42 +284,33 @@ class ColorfulNoiseScript(scripts.Script):
                         with gr.Row():
                                 enabled_button = gr.Checkbox(label="Enable CN", value=False)
                                 normalize_button = gr.Checkbox(label="Normalize", value=False)
-                                normalize_after_button = gr.Checkbox(label="Normalize After", value=False)
                                 color_button = gr.ColorPicker(label="ColorSelector")
-                                #gradio.ColorPicker.change,
-                                #This listener is triggered when the component's value changes either because of user input (e.g. a user types in a textbox) OR because of a function update
-                                #update the color value
                         with gr.Row():
-                                strength_slider = gr.Slider(0, 4, step=0.1, default=0.5, label="StrengthSlider")
-                                normalize_slider = gr.Slider(0, 1, step=0.05, default=0.5, label="NormalizeSlider")
-                return [enabled_button, normalize_button, normalize_after_button, color_button, strength_slider, normalize_slider]
+                                strength_slider = gr.Slider(-1, 2, step=0.1, default=0.5, label="StrengthSlider")
+                        with gr.Row():
+                                normalize_before_slider = gr.Slider(0, 1, step=0.05, default=0, label="Normalize Before")
+                                normalize_after_slider = gr.Slider(0, 1, step=0.05, default=0, label="Normalize After")
+                        with gr.Row():
+                                #luminance control
+                                luminance_slider = gr.Slider(-1, 1, step=0.05, default=0, label="Luminance (L0/L1)")
+                return [enabled_button, normalize_button, color_button, strength_slider, normalize_before_slider, normalize_after_slider, luminance_slider]
         
-        def process(self, p, enabled_button, normalize_button, normalize_after_button, color_button, strength_slider, normalize_slider):
-                
-                #color is a list of 3 values, r,g,b, each between 0 and 1
-                #convert to a list of 3 values, each between 0 and 1
-                #color is a string, so we need to convert it to a list of 3 values
-                #COLOR FORMAT:
-                # #ff0080
-                #convert hex to rgb
+        def process(self, p, enabled_button, normalize_button, color_button, strength_slider, normalize_before_slider, normalize_after_slider, luminance_slider):
                 global color
                 global enabled
                 global strength
                 global normalize
-                global normalize_weight
-                global normalize_after
+                global normalize_weights
+                global luminance
+                luminance = luminance_slider
 
                 if normalize_button == True:
                         normalize = True
-                        normalize_weight = normalize_slider
+                        normalize_weights = [normalize_before_slider, normalize_after_slider]
                 else:
                         normalize = False
-                        normalize_weight = 0
+                        normalize_weights = [0,0]
 
-                if normalize_after_button == True:
-                        normalize_after = True
-                else:
-                        normalize_after = False
 
                 if enabled_button == True:
                         enabled = True
