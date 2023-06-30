@@ -12,9 +12,32 @@ import modules.shared as shared
 enabled = False
 normalize = False
 normalize_weight = 0.5
+normalize_after = False
+
 color = [0.0,0.0,0.0]
 strength = 1.0
 
+def normalize_noise(noise):
+        global normalize
+        global normalize_weight
+        print("Normalize: " + str(normalize))
+        if normalize == True:
+                print("NORMALIZING NOISE test")
+                #per channel normalization
+                for ix, channel in enumerate(noise):
+                        #we noticed a big shift in the i2i dynamic range, so we are normalizing each channel separately to fix this
+                        #all channels should be normally distributed, so we can use the mean and std to normalize
+                        print("Channel: " + str(ix))
+                        print("Mean: " + str(torch.mean(channel)))
+                        print("Std: " + str(torch.std(channel)))
+                        channel_norm = (channel - torch.mean(channel)) / torch.std(channel)
+                        print("Final Mean: " + str(torch.mean(channel_norm)))
+                        print("Final Std: " + str(torch.std(channel_norm)))
+                        #mix in the normalized channel with the original channel
+                        #channel = (channel * 0.5) + (channel_norm * 0.5)
+                        channel = (channel * (1.0 - normalize_weight)) + (channel_norm * normalize_weight)
+                        noise[ix] = channel
+        return noise
 
 def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, seed_resize_from_h=0, seed_resize_from_w=0, p=None):
         eta_noise_seed_delta = opts.eta_noise_seed_delta or 0
@@ -46,24 +69,13 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
         global enabled
         global normalize
         global normalize_weight
+        global normalize_after
         global color
-        print("Normalize: " + str(normalize))
-        if normalize == True:
-                print("NORMALIZING NOISE test")
-                #per channel normalization
-                for ix, channel in enumerate(noise):
-                        #we noticed a big shift in the i2i dynamic range, so we are normalizing each channel separately to fix this
-                        #all channels should be normally distributed, so we can use the mean and std to normalize
-                        print("Channel: " + str(ix))
-                        print("Mean: " + str(torch.mean(channel)))
-                        print("Std: " + str(torch.std(channel)))
-                        channel_norm = (channel - torch.mean(channel)) / torch.std(channel)
-                        print("Final Mean: " + str(torch.mean(channel_norm)))
-                        print("Final Std: " + str(torch.std(channel_norm)))
-                        #mix in the normalized channel with the original channel
-                        #channel = (channel * 0.5) + (channel_norm * 0.5)
-                        channel = (channel * (1.0 - normalize_weight)) + (channel_norm * normalize_weight)
-                        noise[ix] = channel
+
+        if normalize_after == False:
+                print("Normalizing Before")
+                noise = normalize_noise(noise)
+        
 
         print("Enabled: " + str(enabled))
         if enabled == True:
@@ -78,7 +90,7 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 #offsetlist = [0,0,0.2,0.2]
                 #offsetlist = [0,0,0.18215,0.18215]
                 #offsetlist = [0,0,0,0]
-                mult = 0.18215
+                #mult = 0.18215
                 #mult = 0.3
                 
 
@@ -117,6 +129,7 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 
                 #multiply rgb color by the coefficient matrix's columns, this gives us the offsets for each layer
                 #Multiply each column in coefs by each index in color
+                mult = 1.0
                 coefs[:,0] = coefs[:,0] * color[0] * mult * strength
                 coefs[:,1] = coefs[:,1] * color[1] * mult * strength
                 coefs[:,2] = coefs[:,2] * color[2] * mult * strength
@@ -141,11 +154,10 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 #offsettensor = offsettensor.to(noise.device)
                 #noise = torch.add(noise, offsettensor)
         
-                
-                       
+        if normalize_after == True:
+                print("Normalizing After")
+                noise = normalize_noise(noise)
 
-
-        
         if subnoise is not None:
             noise = processing.slerp(subseed_strength, noise, subnoise)
 
@@ -191,16 +203,17 @@ class ColorfulNoiseScript(scripts.Script):
                         with gr.Row():
                                 enabled_button = gr.Checkbox(label="Enable CN", value=False)
                                 normalize_button = gr.Checkbox(label="Normalize", value=False)
+                                normalize_after_button = gr.Checkbox(label="Normalize After", value=False)
                                 color_button = gr.ColorPicker(label="ColorSelector")
                                 #gradio.ColorPicker.change,
                                 #This listener is triggered when the component's value changes either because of user input (e.g. a user types in a textbox) OR because of a function update
                                 #update the color value
                         with gr.Row():
-                                strength_slider = gr.Slider(label="StrengthSelector", value=1, minimum=0, maximum=3, step=0.1)
-                                normalize_slider = gr.Slider(label="NormalizeSelector", value=0.5, minimum=0, maximum=1, step=0.05)
-                return [enabled_button, normalize_button,  color_button, strength_slider, normalize_slider]
+                                strength_slider = gr.Slider(0, 4, step=0.1, default=0.5, label="StrengthSlider")
+                                normalize_slider = gr.Slider(0, 1, step=0.05, default=0.5, label="NormalizeSlider")
+                return [enabled_button, normalize_button, normalize_after_button, color_button, strength_slider, normalize_slider]
         
-        def process(self, p, enabled_button, normalize_button, color_button, strength_slider, normalize_slider):
+        def process(self, p, enabled_button, normalize_button, normalize_after_button, color_button, strength_slider, normalize_slider):
                 
                 #color is a list of 3 values, r,g,b, each between 0 and 1
                 #convert to a list of 3 values, each between 0 and 1
@@ -213,15 +226,22 @@ class ColorfulNoiseScript(scripts.Script):
                 global strength
                 global normalize
                 global normalize_weight
+                global normalize_after
+
+                if normalize_button == True:
+                        normalize = True
+                        normalize_weight = normalize_slider
+                else:
+                        normalize = False
+                        normalize_weight = 0
+
+                if normalize_after_button == True:
+                        normalize_after = True
+                else:
+                        normalize_after = False
 
                 if enabled_button == True:
                         enabled = True
-                        if normalize_button == True:
-                                normalize = True
-                                normalize_weight = normalize_slider
-                        else:
-                                normalize = False
-                                normalize_weight = 0
 
                         strength = strength_slider
                         h = color_button.lstrip('#')
@@ -232,14 +252,13 @@ class ColorfulNoiseScript(scripts.Script):
                         #need to override the create_random_tensors function in processing.py, but it's not a class, it's just a function
                         #doing this just causes a recursion depth error
                         #fix the recursion error and override the function
-                        processing.create_random_tensors = create_random_tensors
-                        #reset p to use the new create_random_tensors function
-                        p.create_random_tensors = create_random_tensors
+                        
                 else:
                        enabled = False
                        strength = 0
                 
-
+                processing.create_random_tensors = create_random_tensors
+                p.create_random_tensors = create_random_tensors
                 #proc = process_images(p)
                 #return proc
 
