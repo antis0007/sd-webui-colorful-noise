@@ -61,12 +61,27 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
         print("Enabled: " + str(enabled))
         if enabled == True:
                 
-                #R - [-0.9,                +0.9,             +0.9],  #L2
-                #G - [+0.9,                -0.9,             +0.9],  #L2 
-                #B - [+0.9,                +0.9,             -0.9],  #L2 
-                #C - [+0.9,                -0.9,             -0.9],  #L2  
-                #M - [-0.9,                +0.9,             -0.9],  #L2
-                #Y - [-0.9,                -0.9,             +0.9],  #L2
+                #R - [+0.9,                -0.9,             -0.9],  #L2
+                #G - [-0.9,                +0.9,             -0.9],  #L2 
+                #B - [-0.9,                -0.9,             +0.9],  #L2 
+                
+                #C - [-0.9,                +0.9,             +0.9],  #L2  
+                #M - [+0.9,                -0.9,             +0.9],  #L2
+                #Y - [+0.9,                +0.9,             -0.9],  #L2
+                
+                #Half-Strength Colors
+                #Purple - [0,                -0.9,             +0.9],  #L2 (128,0,255)
+                #Lime   - [0,                +0.9,             -0.9],  #L2 (0,255,128)
+
+                #Red-Yellow - [+0.9,                0,             -0.9],  #L2 (255,128,0) (ORANGE)
+                #Blue-Green - [-0.9,                0,             +0.9],  #L2 (0,128,255)
+
+                #Green-Blue - [-0.9,                +0.9,             0],  #L2 (0,255,128)
+                #Red-Purple - [+0.9,                -0.9,             0],  #L2 (255,0,128)
+
+
+                
+
 
                 #Orange is composed of Red and Yellow
                 #Orange - [-0.9,                0,             +0.9],  #L2
@@ -80,9 +95,29 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 R = color[0]
                 G = color[1]
                 B = color[2]
-                Rl = -0.9 * (R/255) + 0.9 * (1-(R/255))*0.75
-                Gl = -0.9 * (G/255) + 0.9 * (1-(G/255))
-                Bl = -0.9 * (B/255) + 0.9 * (1-(B/255))
+                vR = R / 255
+                vG = G / 255
+                vB = B / 255
+                Rl = 0.9 * (R/255) - 0.9 * (1-(R/255))
+                Gl = 0.9 * (G/255) - 0.9 * (1-(G/255))
+                Bl = 0.9 * (B/255) - 0.9 * (1-(B/255))
+
+                #calculate how much  
+
+                #calculate the luminance
+                #lum = (0.2126 *vR) + (0.7152 * vG) + (0.0722 * vB)
+                lum = (R + G + B) / (3 * 255)
+                #scale to between -1 and 1
+                lum = (lum * 2) - 1
+                lum = lum * 0.6
+                print("Lum: " + str(lum))
+                #scale lum to between 0 and 1
+                #lum = lum / 255
+
+                #calculate the Rl, Gl, and Bl values including the luminance
+
+                
+
 
                 print("Rl: " + str(Rl))
                 print("Gl: " + str(Gl))
@@ -92,21 +127,35 @@ def create_random_tensors(shape, seeds, subseeds=None, subseed_strength=0.0, see
                 #[ +, +, -], #L1 - Blue <-> Yellow
                 #[ -, +, +], #L2 - Red <-> Cyan
                 #[ -, +, -], #L3 - Magenta <-> Green
+                
+                #l0 = (G + B) to R
+                #l1 = B to (R + G)
+                #l2 = R to (G + B)
+                #l3 = G to (R + B)
                 coefs = torch.tensor([
                 # +/-     R                    G                 B
-                        [  -l*Rl,                  +l*Gl,               +l*Bl],  #L0 
-                        [  -c*Rl,                  -c*Gl,               +c*Bl],  #L1
-                        [  +Rl,                    -Gl,                   -Bl],  #L2
-                        [  +s*Rl,                  -s*Gl,               +s*Bl],  #L3
+                        [  +l*Rl+lum,                  -l*Gl+lum,               -l*Bl+lum],  #L0 
+                        [  +c*Rl+lum,                  +c*Gl+lum,               -c*Bl+lum],  #L1
+                        [  -Rl,                    +Gl,                   +Bl],  #L2
+                        [  -s*Rl,                  +s*Gl,               -s*Bl],  #L3
                         #[  s,                  -s,               s],  #L3
                         #[  -Rl,                  +Gl,               -Bl],  #L3
                 ]).to(noise.device)
+                """ coefs = torch.tensor([
+                # +/-     R                    G                 B
+                        [  -l,                  +l,               +l],  #L0 
+                        [  -c,                  -c,               +c],  #L1 
+                        [  +Rl,                -Gl,             -Bl],  #L2
+                        [  +s,                  -s,               +s]   #L3 
+                ]).to(noise.device) """
                 offsets = [0, 0, 0, 0]
-                coefs = coefs * strength
-                offsets[0] = sum(coefs[0])
-                offsets[1] = sum(coefs[1])
-                offsets[2] = sum(coefs[2])
-                offsets[3] = sum(coefs[3])
+                #coefs = coefs * strength
+                offsets[0] = sum(coefs[0]*strength)
+                offsets[1] = sum(coefs[1]*strength)
+                offsets[2] = sum(coefs[2]*strength)
+                offsets[3] = sum(coefs[3]*strength)
+                print(coefs)
+                print(offsets)
                 offsets = torch.tensor(offsets).to(noise.device)
                 #apply each layer of offsets to each of the respective layers of noise
                 for i in range(0,4):
@@ -164,10 +213,10 @@ class ColorfulNoiseScript(scripts.Script):
                                 normalize_button = gr.Checkbox(label="Enable Normalization", value=False)
                                 color_button = gr.ColorPicker(label="ColorSelector")
                         with gr.Row():
-                                strength_slider = gr.Slider(-1, 2, step=0.1, default=1, label="Strength Slider")
+                                strength_slider = gr.Slider(-1, 2, step=0.1, label="Strength Slider",value=1)
                         with gr.Row():
-                                normalize_before_slider = gr.Slider(0, 1, label="Normalize Before", step=0.01)
-                                normalize_after_slider = gr.Slider(0, 1, label="Normalize After", step=0.01)
+                                normalize_before_slider = gr.Slider(0, 1, step=0.01, label="Normalize Before", value=1)
+                                normalize_after_slider = gr.Slider(0, 1, step=0.01, label="Normalize After", value=0.9)
                 return [enabled_button, normalize_button, color_button, strength_slider, normalize_before_slider, normalize_after_slider]
         
         def process(self, p, enabled_button, normalize_button, color_button, strength_slider, normalize_before_slider, normalize_after_slider):
